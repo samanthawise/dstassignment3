@@ -1,0 +1,115 @@
+---
+title: "dst_2_sam"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Before we start, we'll load some useful packages:
+
+```{r}
+library(tidyverse)
+library(naivebayes)
+library(caret)
+```
+
+Importing the KDD11 dataset:
+
+```{r}
+kddata<-read.csv("//Users//samanthawise//Documents//VersionControl//datasciencetoolbox//assignment_1//data//kddcup.data_10_percent") # edit path
+
+kddnames <- read.table("//Users//samanthawise//Documents//VersionControl//datasciencetoolbox//assignment_1//data//kddcup.names",sep=":",skip=1,as.is=T) # edit path
+
+colnames(kddata) <- c(kddnames[,1],"label")
+
+kddata$label <- as.character(kddata$label)
+```
+
+We're going to try to predict the protocol type.
+
+```{r}
+table(kddata[,"protocol_type"])
+table(kddata[,"duration"]==0)
+table(kddata[kddata$duration != 0,]$protocol_type)
+table(kddata[kddata$duration == 0,]$protocol_type)
+```
+
+
+So there is no zero duration data for the protocol icmp. However for zero duration there is double the amount of icmp then udp. (should we perform log transform on nonzero duration?)
+
+ICMP is a control protocol, meaning that it designed to not carry application data, but rather information about the status of the network itself. The best known example of ICMP in practice is the ping utility, that uses ICMP to probe remote hosts for responsiveness and overall round-trip time of the probe messages.
+
+Both Transmission Control Protocol (TCP) and User Datagram Protocol (UDP) are transportation protocols, they are used to pass the actual data. The main difference between TCP and UDP is that TCP is a connection oriented protocol, it guarantees that all sent packets will reach the destination in the correct order.
+
+UDP, on the other hand, is a connection-less protocol. Communication is datagram oriented, so the integrity is guaranteed only on the single datagram. Datagrams reach destination and can arrive out of order or don't arrive at all. It's generally used for real time communication, where a little percentage of packet loss rate is preferable to the overhead of a TCP connection.
+
+```{r}
+trans <- function(x){
+  x[,"logduration"]=log10(x[,"duration"])
+  x[,"zeroduration"]=(x[,"duration"]==0)
+  x
+}
+kddata2 <- trans(kddata)
+
+kddata2non <- kddata2 %>%
+  subset(zeroduration == FALSE) %>%
+  mutate(protocol_type = factor(protocol_type)) %>%
+  select(duration, protocol_type, count:dst_host_srv_rerror_rate)
+  #select(duration, protocol_type, same_srv_rate, diff_srv_rate, srv_diff_host_rate, dst_host_count, dst_host_srv_count, dst_host_same_srv_rate, dst_host_diff_srv_rate, dst_host_same_src_port_rate)
+
+kddata2zero <- kddata2 %>%
+  subset(zeroduration == TRUE)
+  
+```
+
+We'll now make a test dataset and a training dataset. First we consider the nonzero duration scenario and we wish to see if we can classify between UDP and TCP:
+
+
+```{r}
+set.seed(1)
+n <- dim(kddata2non)[1]
+s <- sample(1:n,n/2)
+train <- kddata2non[s,]
+test <- kddata2non[-s,]
+```
+
+Naive Bayes Model
+
+```{r}
+#m <- naive_bayes(protocol_type ~ ., data = train)
+#m <- naive_bayes(protocol_type ~ ., data = train, laplace = 1)
+
+x <- kddata2non %>%
+  select(duration, count:dst_host_srv_rerror_rate)
+  #select(duration, same_srv_rate:dst_host_same_src_port_rate)
+
+y <- kddata2non$protocol_type
+
+model <- train(x,y,'nb',trControl=trainControl(method='cv',number=10))
+```
+
+Making predictions:
+
+```{r}
+#predict_naive <- predict(m, test)
+#predict_naive_prob <- predict(m, test, type = "prob")
+predict(model$finalModel,x)
+```
+
+How many classification errors were made?
+
+```{r}
+table(predict(model$finalModel,x)$class,y)
+```
+
+Plotting the features:
+
+```{r}
+
+naive_protocol <- naive_bayes(protocol_type ~ ., data = kddata2non)
+plot(naive_protocol)
+```
+
+
