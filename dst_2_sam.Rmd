@@ -59,6 +59,10 @@ kddata2non <- kddata2 %>%
   select(duration, protocol_type, count:dst_host_srv_rerror_rate)
   #select(duration, protocol_type, same_srv_rate, diff_srv_rate, srv_diff_host_rate, dst_host_count, dst_host_srv_count, dst_host_same_srv_rate, dst_host_diff_srv_rate, dst_host_same_src_port_rate)
 
+
+kddata2non_harding <- kddata2non %>%
+  mutate(protocol_type = as.numeric(factor(protocol_type))) #since lvq works on binarised data
+
 kddata2zero <- kddata2 %>%
   subset(zeroduration == TRUE)
   
@@ -81,27 +85,45 @@ Naive Bayes Model
 #m <- naive_bayes(protocol_type ~ ., data = train)
 #m <- naive_bayes(protocol_type ~ ., data = train, laplace = 1)
 
-x <- kddata2non %>%
+x_w <- kddata2non %>%
   select(duration, count:dst_host_srv_rerror_rate)
   #select(duration, same_srv_rate:dst_host_same_src_port_rate)
 
-y <- kddata2non$protocol_type
+y_w <- kddata2non$protocol_type
 
-model <- train(x,y,'nb',trControl=trainControl(method='cv',number=10))
+model_w <- train(x,y,'naive_bayes',trControl=trainControl(method='cv',number=10))
 ```
 
-Making predictions:
+LVQ model
+
+```{r}
+x_h <- kddata2non_harding %>%
+  select(duration, count:dst_host_srv_rerror_rate)
+
+y_h <- kddata2non_harding$protocol_type
+
+model_h <- train(x_harding,y,'lvq',trControl=trainControl(method='cv',number=10))
+
+```
+
+
+Making predictions. How many classification errors were made?
+
+Naive Bayes:
 
 ```{r}
 #predict_naive <- predict(m, test)
 #predict_naive_prob <- predict(m, test, type = "prob")
-predict(model$finalModel,x)
+pred_w <- predict(model_w$finalModel,x_w)
+confusionMatrix(pred_w, y_w)
 ```
 
-How many classification errors were made?
+LVQ
 
 ```{r}
-table(predict(model$finalModel,x)$class,y)
+pred_h <- lvqtest(model_h$finalModel,x_h)
+
+confusionMatrix(pred_h, y)
 ```
 
 Plotting the features:
@@ -112,4 +134,22 @@ naive_protocol <- naive_bayes(protocol_type ~ ., data = kddata2non)
 plot(naive_protocol)
 ```
 
+
+Stacking Part:
+
+```{r}
+lintrain <- cbind(train,
+               data.frame(logistic = logisticmodel$trainres$pred0,
+                    lda = ldamodel$trainres$pred0,
+                    svm = svmmodel$trainres$pred0))
+
+lintest <- cbind(test,
+               data.frame(logistic = logisticmodel$testres$pred0,
+                    lda = ldamodel$testres$pred0,
+                    svm = svmmodel$testres$pred0))
+
+linstackmodel <- learnmodel(logisticregression, http ~ ., lintrain, lintest)
+
+plot(linstackmodel$roc)
+```
 
