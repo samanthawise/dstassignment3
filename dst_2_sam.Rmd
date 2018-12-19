@@ -39,7 +39,7 @@ table(kddata[kddata$duration == 0,]$protocol_type)
 
 So there is no zero duration data for the protocol icmp. However for zero duration there is double the amount of icmp then udp. (should we perform log transform on nonzero duration?)
 
-ICMP is a control protocol, meaning that it designed to not carry application data, but rather information about the status of the network itself. The best known example of ICMP in practice is the ping utility, that uses ICMP to probe remote hosts for responsiveness and overall round-trip time of the probe messages.
+ICMP is a control protocol, meaning that it designed to not carry application data, but rather information about the status of the network itself. 
 
 Both Transmission Control Protocol (TCP) and User Datagram Protocol (UDP) are transportation protocols, they are used to pass the actual data. The main difference between TCP and UDP is that TCP is a connection oriented protocol, it guarantees that all sent packets will reach the destination in the correct order.
 
@@ -61,7 +61,7 @@ kddata2non <- kddata2 %>%
 
 
 kddata2non_harding <- kddata2non %>%
-  mutate(protocol_type = as.numeric(factor(protocol_type))) #since lvq works on binarised data
+  mutate(protocol_type = factor(as.numeric(factor(protocol_type)))) #since lvq works on binarised data
 
 kddata2zero <- kddata2 %>%
   subset(zeroduration == TRUE)
@@ -73,10 +73,10 @@ We'll now make a test dataset and a training dataset. First we consider the nonz
 
 ```{r}
 set.seed(1)
-n <- dim(kddata2non)[1]
+n <- dim(kddata2non_harding)[1]
 s <- sample(1:n,n/2)
-train <- kddata2non[s,]
-test <- kddata2non[-s,]
+train <- kddata2non_harding[s,]
+test <- kddata2non_harding[-s,]
 ```
 
 Naive Bayes Model
@@ -121,35 +121,62 @@ confusionMatrix(pred_w, y_w)
 LVQ
 
 ```{r}
+require(class)
 pred_h <- lvqtest(model_h$finalModel,x_h)
-
 confusionMatrix(pred_h, y)
 ```
 
 Plotting the features:
 
 ```{r}
-
 naive_protocol <- naive_bayes(protocol_type ~ ., data = kddata2non)
 plot(naive_protocol)
 ```
 
+```{r}
+lvq_fun <- getModelInfo("lvq")[[1]]
+lvq_fun$prob <- function (modelFit, newdata, submodels = NULL)  {
+  out <- exp(predict(modelFit, newdata))
+  t(apply(out, 1, function(x) x/sum(x)))
+}
+```
 
-Stacking Part:
+
+
+Stacking
 
 ```{r}
-lintrain <- cbind(train,
-               data.frame(logistic = logisticmodel$trainres$pred0,
-                    lda = ldamodel$trainres$pred0,
-                    svm = svmmodel$trainres$pred0))
+# Example of Stacking algorithms
+# create submodels
+library(caret)
+library(caretEnsemble)
+# control <- trainControl(method="repeatedcv", number=10, repeats=3, savePredictions=TRUE, classProbs=TRUE)
+control <- trainControl(method="cv", number=10, classProbs = TRUE)
+algorithmList <- c('naive_bayes', 'adaboost')
+set.seed(7)
+models <- caretList(protocol_type ~., data=kddata2non, trControl=control, methodList=algorithmList)
+results <- resamples(models)
+summary(results)
+dotplot(results)
+```
+```{r}
+# correlation between results
+modelCor(results)
+splom(results)
+```
 
-lintest <- cbind(test,
-               data.frame(logistic = logisticmodel$testres$pred0,
-                    lda = ldamodel$testres$pred0,
-                    svm = svmmodel$testres$pred0))
+```{r}
+# stack use the random forest algorithm to combine the predictions.
+# stackControl <- trainControl(method="repeatedcv", number=10, repeats=3, savePredictions=TRUE, classProbs=TRUE)
+stackControl <- trainControl(method="cv", number=10, classProbs = TRUE)
+set.seed(7)
+stack.rf <- caretStack(models, method="rf", metric="Accuracy", trControl=stackControl)
+print(stack.rf)
+```
 
-linstackmodel <- learnmodel(logisticregression, http ~ ., lintrain, lintest)
-
-plot(linstackmodel$roc)
+```{r}
+# Generate level-one dataset for training the ensemble metalearner
+#predDF <- data.frame(pred_w, pred_w)
+#modelStack <- train(protocol_type ~ ., data = predDF, method = "rf")
 ```
 
