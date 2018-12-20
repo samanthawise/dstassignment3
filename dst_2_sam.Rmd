@@ -75,8 +75,23 @@ We'll now make a test dataset and a training dataset. First we consider the nonz
 set.seed(1)
 n <- dim(kddata2non_harding)[1]
 s <- sample(1:n,n/2)
+
+
 train <- kddata2non_harding[s,]
+
+train_data <- train %>%
+  subset(select = -c(protocol_type))
+
+train_label <- train %>%
+  subset(select = c(protocol_type))
+
 test <- kddata2non_harding[-s,]
+
+test_data <- test %>%
+  subset(select = -c(protocol_type))
+
+test_label <- test %>%
+  subset(select = c(protocol_type))
 ```
 
 Naive Bayes Model
@@ -91,7 +106,9 @@ x_w <- kddata2non %>%
 
 y_w <- kddata2non$protocol_type
 
-model_w <- train(x,y,'naive_bayes',trControl=trainControl(method='cv',number=10))
+control <- trainControl(method="repeatedcv", number=5, savePredictions="final", classProbs=TRUE)
+
+model_w <- train(x_w,y_w,'naive_bayes',trControl=control)
 ```
 
 LVQ model
@@ -102,7 +119,9 @@ x_h <- kddata2non_harding %>%
 
 y_h <- kddata2non_harding$protocol_type
 
-model_h <- train(x_harding,y,'lvq',trControl=trainControl(method='cv',number=10))
+control <- trainControl(method="repeatedcv", number=5, savePredictions="final")
+
+model_h <- train(x_harding,y_h,'lvq',trControl=control)
 
 ```
 
@@ -114,6 +133,7 @@ Naive Bayes:
 #predict_naive <- predict(m, test)
 #predict_naive_prob <- predict(m, test, type = "prob")
 pred_w <- predict(model_w$finalModel,x_w)
+pred_w_prob <- predict(model_w,x_w, type = "prob")
 confusionMatrix(pred_w, y_w)
 ```
 
@@ -149,8 +169,8 @@ Stacking
 # create submodels
 library(caret)
 library(caretEnsemble)
-# control <- trainControl(method="repeatedcv", number=10, repeats=3, savePredictions=TRUE, classProbs=TRUE)
-control <- trainControl(method="cv", number=10, classProbs = TRUE)
+control <- trainControl(method="repeatedcv", number=5, savePredictions="final", classProbs=TRUE)
+#control <- trainControl(method="cv", number=10, classProbs = TRUE, savePredictions = T)
 algorithmList <- c('naive_bayes', 'adaboost')
 set.seed(7)
 models <- caretList(protocol_type ~., data=kddata2non, trControl=control, methodList=algorithmList)
@@ -167,20 +187,20 @@ modelCor(results)
 splom(results)
 ```
 
-We can see that the pair of predictions have a low correlation.
+We can see that the pair of predictions have a fairly low correlation.
 
 We combine the predictions of the classifiers using random forest along the dataset. 
 
 ```{r}
 # stack use the random forest algorithm to combine the predictions.
-# stackControl <- trainControl(method="repeatedcv", number=10, repeats=3, savePredictions=TRUE, classProbs=TRUE)
-stackControl <- trainControl(method="cv", number=10, classProbs = TRUE)
+stackControl <- trainControl(method="repeatedcv", number=5, savePredictions= "final", classProbs=TRUE)
+#stackControl <- trainControl(method="cv", number=10, classProbs = TRUE)
 set.seed(7)
 stack.rf <- caretStack(models, method="rf", metric="Accuracy", trControl=stackControl)
 print(stack.rf)
 ```
 
-We can see that this has lifted the accuracy to 99.255%, which is an improvement on the Naive Bayes Model and adaboost alone.
+We can see that this has lifted the accuracy to 99.37652%, which is an improvement on the Naive Bayes Model (87.73279%) alone but not the adaboost Model (99.46559%).
 
 ```{r}
 # Generate level-one dataset for training the ensemble metalearner
@@ -188,30 +208,46 @@ We can see that this has lifted the accuracy to 99.255%, which is an improvement
 #modelStack <- train(protocol_type ~ ., data = predDF, method = "rf")
 ```
 
+ROC Curve for Naive Bayes
+
 ```{r}
 #library("pROC")
 #library("plotROC")
 
-ctrl <- trainControl(method = "repeatedcv",   # 10fold cross validation
-                     number = 5,							# do 5 repititions of cv
-                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
-                     classProbs=TRUE,
-                     allowParallel = TRUE)
- 
-sam_w_model <- train(x=train,y=y_w,
-                              method = "nb",
-                              metric = "ROC",
-                              trControl = ctrl,
-                              #tuneGrid=grid,
-                              verbose=FALSE)
+ctrl <- trainControl(method="repeatedcv", number=5, savePredictions = "final", classProbs = TRUE)
+mdl <- train(x_h,make.names(y_h), method = "naive_bayes", trControl = ctrl, metric = "ROC")
+#pred_se <- predict(mdl, newdata = kddata2non_harding, type = "prob")
 
-sam_w_pred <- predict(sam_w_model,y_w)
 
- 
+for_lift = data.frame(Class = mdl$pred$obs,  naive_bayes = mdl$pred$X1)
 
-pred_w_prob <- predict(model_w$finalModel,x_w, type = "prob")
+pROC::plot.roc(pROC::roc(response = for_lift$Class,
+                         predictor = for_lift$naive_bayes,
+                         levels = c("X1", "X2")),
+           lwd=1.5) 
 
-result_roc <- roc(y_w, result.predicted.prob$versicolor)
+#plot(roc(predictor = model_w$pred$CLASSNAME, response = model_w$pred$obs))
+
+# ctrl <- trainControl(method = "repeatedcv",   # 10fold cross validation
+#                      number = 5,							# do 5 repititions of cv
+#                      summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+#                      classProbs=TRUE,
+#                      allowParallel = TRUE)
+#  
+# sam_w_model <- train(x=train,y=y_w,
+#                               method = "nb",
+#                               metric = "ROC",
+#                               trControl = ctrl,
+#                               #tuneGrid=grid,
+#                               verbose=FALSE)
+# 
+# sam_w_pred <- predict(sam_w_model,y_w)
+# 
+#  
+# 
+# pred_w_prob <- predict(model_w$finalModel,x_w, type = "prob")
+# 
+# result_roc <- roc(y_w, result.predicted.prob$versicolor)
 
 # selectedIndices <- model_w$pred$mtry == 2
 # plot.roc(model_w$pred$obs[selectedIndices],
@@ -223,6 +259,22 @@ result_roc <- roc(y_w, result.predicted.prob$versicolor)
 #   style_roc()
 # 
 # g + annotate("text", x=0.75, y=0.25, label=paste("AUC =", round((calc_auc(g))$AUC, 4)))
+```
+
+For Adaboost
+
+```{r}
+ctrl <- trainControl(method="repeatedcv", number=5, savePredictions = "final", classProbs = TRUE)
+mdl <- train(x_h,make.names(y_h), method = "adaboost", trControl = ctrl, metric = "ROC")
+pred_se <- predict(mdl, newdata = kddata2non_harding, type = "prob")
+
+
+for_lift = data.frame(Class = mdl$pred$obs,  adaboost = mdl$pred$X1)
+
+pROC::plot.roc(pROC::roc(response = for_lift$Class,
+                         predictor = for_lift$adaboost,
+                         levels = c("X1", "X2")),
+           lwd=1.5) 
 ```
 
 
