@@ -106,7 +106,6 @@ model_h <- train(x_harding,y,'lvq',trControl=trainControl(method='cv',number=10)
 
 ```
 
-
 Making predictions. How many classification errors were made?
 
 Naive Bayes:
@@ -126,22 +125,22 @@ pred_h <- lvqtest(model_h$finalModel,x_h)
 confusionMatrix(pred_h, y)
 ```
 
-Plotting the features:
+Plotting the features of Naive Bayes:
 
 ```{r}
 naive_protocol <- naive_bayes(protocol_type ~ ., data = kddata2non)
 plot(naive_protocol)
 ```
 
+Tried to customise the LVQ predict function but since it is not included in the caret package, the caretList function would fail.
+
 ```{r}
-lvq_fun <- getModelInfo("lvq")[[1]]
-lvq_fun$prob <- function (modelFit, newdata, submodels = NULL)  {
-  out <- exp(predict(modelFit, newdata))
-  t(apply(out, 1, function(x) x/sum(x)))
-}
+# lvq_fun <- getModelInfo("lvq")[[1]]
+# lvq_fun$prob <- function (modelFit, newdata, submodels = NULL)  {
+#   out <- exp(predict(modelFit, newdata))
+#   t(apply(out, 1, function(x) x/sum(x)))
+# }
 ```
-
-
 
 Stacking
 
@@ -159,11 +158,18 @@ results <- resamples(models)
 summary(results)
 dotplot(results)
 ```
+
+When we are combining the predictions of different models via stacking, it is desirable that the predictions made by the sub-models have low correlation. This would suggest that the models are skillful but in different ways, allowing a new classifier to figure out how to get the best from each model for an improved score.
+
 ```{r}
 # correlation between results
 modelCor(results)
 splom(results)
 ```
+
+We can see that the pair of predictions have a low correlation.
+
+We combine the predictions of the classifiers using random forest along the dataset. 
 
 ```{r}
 # stack use the random forest algorithm to combine the predictions.
@@ -174,9 +180,50 @@ stack.rf <- caretStack(models, method="rf", metric="Accuracy", trControl=stackCo
 print(stack.rf)
 ```
 
+We can see that this has lifted the accuracy to 99.255%, which is an improvement on the Naive Bayes Model and adaboost alone.
+
 ```{r}
 # Generate level-one dataset for training the ensemble metalearner
 #predDF <- data.frame(pred_w, pred_w)
 #modelStack <- train(protocol_type ~ ., data = predDF, method = "rf")
 ```
 
+```{r}
+#library("pROC")
+#library("plotROC")
+
+ctrl <- trainControl(method = "repeatedcv",   # 10fold cross validation
+                     number = 5,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+ 
+sam_w_model <- train(x=train,y=y_w,
+                              method = "nb",
+                              metric = "ROC",
+                              trControl = ctrl,
+                              #tuneGrid=grid,
+                              verbose=FALSE)
+
+sam_w_pred <- predict(sam_w_model,y_w)
+
+ 
+
+pred_w_prob <- predict(model_w$finalModel,x_w, type = "prob")
+
+result_roc <- roc(y_w, result.predicted.prob$versicolor)
+
+# selectedIndices <- model_w$pred$mtry == 2
+# plot.roc(model_w$pred$obs[selectedIndices],
+#          model_w$pred$M[selectedIndices])
+
+# g <- ggplot(model_w$pred[selectedIndices, ], aes(m=M, d=factor(obs, levels = c("R", "M")))) + 
+#   geom_roc(n.cuts=0) + 
+#   coord_equal() +
+#   style_roc()
+# 
+# g + annotate("text", x=0.75, y=0.25, label=paste("AUC =", round((calc_auc(g))$AUC, 4)))
+```
+
+
+Comparing this performance with Neural Networks: (Kish)
