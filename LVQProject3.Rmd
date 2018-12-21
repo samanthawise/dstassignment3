@@ -1,0 +1,198 @@
+---
+title: "LVQProject3"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Here we start loading the data. I do not use the two columns 20 and 21 which are constant for the entire dataset, and I am also choosing not to use the normal column, for no other reason than this seems like meta-data (we would not normally know whether events are normal or abnormal without previous classification). I want to see if my model can identify protocol type without this extra information.
+```{r}
+library(class)
+library(dplyr)
+library(data.table)
+data<-read.csv("Documents/DataScienceToolbox/kddcup.data_10_percent_corrected")
+names=read.table("Documents/DataScienceToolbox/kddcup.names",sep=":",skip=1,as.is=T)
+colnames(data)=c(names[,1],"normal")
+data<-data[c(-20,-21,-42)]
+```
+
+Now I standardise the data. We only want to consider the non-zero duration data, and I then want to change qualitative columns to leave us with a numeric dataframe that our classifier can learn on. I also remove duplicate rows, as it turns out there are many of these left in the dataset, and this is necessary for the LVQ model to learn properly.
+```{r}
+dataZero=data[data$duration!=0,]
+dataZero=dataZero[dataZero$protocol_type!="icmp",]
+dataZero$protocol_type = factor(dataZero$protocol_type, levels = c('tcp', 'udp'), labels = c(0,1))
+dataZero$service = factor(dataZero$service, labels = c(1:length(unique(dataZero$service))))
+dataZero$flag = factor(dataZero$flag, labels = c(1:length(unique(dataZero$flag))))
+for (i in c(1:dim(dataZero)[2])){
+  if (i!=2){
+    dataZero[,i]=as.numeric(dataZero[,i])
+  }
+}
+dataZero[-2]=scale(dataZero[-2])
+duplicateRows=duplicated(as.matrix(dataZero))
+dataZeroPruned=dataZero[!duplicateRows,]
+nanlist=c()
+for (q in c(1:dim(dataZero)[2])){
+  if (is.nan(dataZero[1,q])){
+    nanlist=c(nanlist,(-1*q))
+  }
+}
+features=c(-2,nanlist)
+target=2
+```
+
+Now I want to partition the data into 10 roughly equal random subsets for cross validation. For ease, I used the same method as for the last project, albeit longwinded.
+```{r}
+set.seed(528491)
+dataindex = c(1:dim(dataZeroPruned)[1])
+oneTenth = ceiling((dim(dataZeroPruned)[1])/10)
+tenthRange = c(1:oneTenth)
+jumbledIndex = sample(dataindex,dim(dataZeroPruned)[1],replace=F)
+dataZerotestlist1 = jumbledIndex[tenthRange]
+dataZerotestlist10 = jumbledIndex[-tenthRange]
+dataZerotestlist2 = dataZerotestlist10[tenthRange]
+dataZerotestlist10 = dataZerotestlist10[-tenthRange]
+dataZerotestlist3 = dataZerotestlist10[tenthRange]
+dataZerotestlist10 = dataZerotestlist10[-tenthRange]
+dataZerotestlist4 = dataZerotestlist10[tenthRange]
+dataZerotestlist10 = dataZerotestlist10[-tenthRange]
+dataZerotestlist5 = dataZerotestlist10[tenthRange]
+dataZerotestlist10 = dataZerotestlist10[-tenthRange]
+dataZerotestlist6 = dataZerotestlist10[tenthRange]
+dataZerotestlist10 = dataZerotestlist10[-tenthRange]
+dataZerotestlist7 = dataZerotestlist10[tenthRange]
+dataZerotestlist10 = dataZerotestlist10[-tenthRange]
+dataZerotestlist8 = dataZerotestlist10[tenthRange]
+dataZerotestlist10 = dataZerotestlist10[-tenthRange]
+dataZerotestlist9 = dataZerotestlist10[tenthRange]
+dataZerotestlist10 = dataZerotestlist10[-tenthRange]
+testset1 = dataZeroPruned[dataZerotestlist1,]
+trainingset1 = dataZeroPruned[-dataZerotestlist1,]
+testset2 = dataZeroPruned[dataZerotestlist2,]
+trainingset2 = dataZeroPruned[-dataZerotestlist2,]
+testset3 = dataZeroPruned[dataZerotestlist3,]
+trainingset3 = dataZeroPruned[-dataZerotestlist3,]
+testset4 = dataZeroPruned[dataZerotestlist4,]
+trainingset4 = dataZeroPruned[-dataZerotestlist4,]
+testset5 = dataZeroPruned[dataZerotestlist5,]
+trainingset5 = dataZeroPruned[-dataZerotestlist5,]
+testset6 = dataZeroPruned[dataZerotestlist6,]
+trainingset6 = dataZeroPruned[-dataZerotestlist6,]
+testset7 = dataZeroPruned[dataZerotestlist7,]
+trainingset7 = dataZeroPruned[-dataZerotestlist7,]
+testset8 = dataZeroPruned[dataZerotestlist8,]
+trainingset8 = dataZeroPruned[-dataZerotestlist8,]
+testset9 = dataZeroPruned[dataZerotestlist9,]
+trainingset9 = dataZeroPruned[-dataZerotestlist9,]
+testset10 = dataZeroPruned[dataZerotestlist10,]
+trainingset10 = dataZeroPruned[-dataZerotestlist10,]
+```
+
+Now I want to train ten classifiers using the training and test sets generated. This is done the following way using the "class" package
+```{r}
+c1<-lvqinit(trainingset1[,features],trainingset1[,target])
+pred1<-lvqtest(c1,testset1[,features])
+Lc1<-lvq1(trainingset1[,features],trainingset1[,target],c1)
+Lpred1<-lvqtest(Lc1,testset1[,features])
+Oc1<-olvq1(trainingset1[,features],trainingset1[,target],c1)
+Opred1<-lvqtest(Oc1,testset1[,features])
+
+c2<-lvqinit(trainingset2[,features],trainingset2[,target])
+pred2<-lvqtest(c2,testset2[,features])
+Lc2<-lvq1(trainingset2[,features],trainingset2[,target],c2)
+Lpred2<-lvqtest(Lc2,testset2[,features])
+Oc2<-olvq1(trainingset2[,features],trainingset2[,target],c2)
+Opred2<-lvqtest(Oc2,testset2[,features])
+
+c3<-lvqinit(trainingset3[,features],trainingset3[,target])
+pred3<-lvqtest(c3,testset3[,features])
+Lc3<-lvq1(trainingset3[,features],trainingset3[,target],c3)
+Lpred3<-lvqtest(Lc3,testset3[,features])
+Oc3<-olvq1(trainingset3[,features],trainingset3[,target],c3)
+Opred3<-lvqtest(Oc3,testset3[,features])
+
+c4<-lvqinit(trainingset4[,features],trainingset4[,target])
+pred4<-lvqtest(c4,testset4[,features])
+Lc4<-lvq1(trainingset4[,features],trainingset4[,target],c4)
+Lpred4<-lvqtest(Lc4,testset4[,features])
+Oc4<-olvq1(trainingset4[,features],trainingset4[,target],c4)
+Opred4<-lvqtest(Oc4,testset4[,features])
+
+c5<-lvqinit(trainingset5[,features],trainingset5[,target])
+pred5<-lvqtest(c5,testset5[,features])
+Lc5<-lvq1(trainingset5[,features],trainingset5[,target],c5)
+Lpred5<-lvqtest(Lc5,testset5[,features])
+Oc5<-olvq1(trainingset5[,features],trainingset5[,target],c5)
+Opred5<-lvqtest(Oc5,testset5[,features])
+
+c6<-lvqinit(trainingset6[,features],trainingset6[,target])
+pred6<-lvqtest(c6,testset6[,features])
+Lc6<-lvq1(trainingset6[,features],trainingset6[,target],c6)
+Lpred6<-lvqtest(Lc6,testset6[,features])
+Oc6<-olvq1(trainingset6[,features],trainingset6[,target],c6)
+Opred6<-lvqtest(Oc6,testset6[,features])
+
+c7<-lvqinit(trainingset7[,features],trainingset7[,target])
+pred7<-lvqtest(c7,testset7[,features])
+Lc7<-lvq1(trainingset7[,features],trainingset7[,target],c7)
+Lpred7<-lvqtest(Lc7,testset7[,features])
+Oc7<-olvq1(trainingset7[,features],trainingset7[,target],c7)
+Opred7<-lvqtest(Oc7,testset7[,features])
+
+c8<-lvqinit(trainingset8[,features],trainingset8[,target])
+pred8<-lvqtest(c8,testset8[,features])
+Lc8<-lvq1(trainingset8[,features],trainingset8[,target],c8)
+Lpred8<-lvqtest(Lc8,testset8[,features])
+Oc8<-olvq1(trainingset8[,features],trainingset8[,target],c8)
+Opred8<-lvqtest(Oc8,testset8[,features])
+
+c9<-lvqinit(trainingset9[,features],trainingset9[,target])
+pred9<-lvqtest(c9,testset9[,features])
+Lc9<-lvq1(trainingset9[,features],trainingset9[,target],c9)
+Lpred9<-lvqtest(Lc9,testset9[,features])
+Oc9<-olvq1(trainingset9[,features],trainingset9[,target],c9)
+Opred9<-lvqtest(Oc9,testset9[,features])
+
+c10<-lvqinit(trainingset10[,features],trainingset10[,target])
+pred10<-lvqtest(c10,testset10[,features])
+Lc10<-lvq1(trainingset10[,features],trainingset10[,target],c10)
+Lpred10<-lvqtest(Lc10,testset10[,features])
+Oc10<-olvq1(trainingset10[,features],trainingset10[,target],c10)
+Opred10<-lvqtest(Oc10,testset10[,features])
+```
+
+Next we can create ten confusion matrices for the classifiers, and determine our accuracy:
+```{r}
+t1=table(pred1,testset1[,target])
+t2=table(pred2,testset2[,target])
+t3=table(pred3,testset3[,target])
+t4=table(pred4,testset4[,target])
+t5=table(pred5,testset5[,target])
+t6=table(pred6,testset6[,target])
+t7=table(pred7,testset7[,target])
+t8=table(pred8,testset8[,target])
+t9=table(pred9,testset9[,target])
+t10=table(pred10,testset10[,target])
+tBig=t1+t2+t3+t4+t5+t6+t7+t8+t9+t10
+
+acc1=(t1[1,1]+t1[2,2])/dim(testset1)[1]
+acc2=(t2[1,1]+t2[2,2])/dim(testset2)[1]
+acc3=(t3[1,1]+t3[2,2])/dim(testset3)[1]
+acc4=(t4[1,1]+t4[2,2])/dim(testset4)[1]
+acc5=(t5[1,1]+t5[2,2])/dim(testset5)[1]
+acc6=(t6[1,1]+t6[2,2])/dim(testset6)[1]
+acc7=(t7[1,1]+t7[2,2])/dim(testset7)[1]
+acc8=(t8[1,1]+t8[2,2])/dim(testset8)[1]
+acc9=(t9[1,1]+t9[2,2])/dim(testset9)[1]
+acc10=(t10[1,1]+t10[2,2])/dim(testset10)[1]
+overallAcc=(acc1+acc2+acc3+acc4+acc5+acc6+acc7+acc8+acc9+acc10)/10
+```
+
+```{r}
+tBig
+overallAcc
+```
+
+Our overall accuracy is 91.17%
