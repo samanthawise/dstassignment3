@@ -219,7 +219,7 @@ mdl <- train(x_h,make.names(y_h), method = "naive_bayes", trControl = ctrl, metr
 #pred_se <- predict(mdl, newdata = kddata2non_harding, type = "prob")
 
 
-for_lift = data.frame(Class = mdl$pred$obs,  naive_bayes = mdl$pred$X1)
+for_lift <- data.frame(Class = mdl$pred$obs,  naive_bayes = mdl$pred$X1)
 
 pROC::plot.roc(pROC::roc(response = for_lift$Class,
                          predictor = for_lift$naive_bayes,
@@ -269,11 +269,25 @@ mdl <- train(x_h,make.names(y_h), method = "adaboost", trControl = ctrl, metric 
 pred_se <- predict(mdl, newdata = kddata2non_harding, type = "prob")
 
 
-for_lift = data.frame(Class = mdl$pred$obs,  adaboost = mdl$pred$X1)
+for_lift <- data.frame(Class = mdl$pred$obs,  adaboost = mdl$pred$X1)
 
 pROC::plot.roc(pROC::roc(response = for_lift$Class,
                          predictor = for_lift$adaboost,
                          levels = c("X1", "X2")),
+           lwd=1.5) 
+```
+
+For combined model:
+
+```{r}
+
+stack.rf$ens_model$pred$obs
+
+for_lift <- data.frame(Class = stack.rf$ens_model$pred$obs,  stack = stack.rf$ens_model$pred$tcp)
+
+pROC::plot.roc(pROC::roc(response = for_lift$Class,
+                         predictor = for_lift$stack,
+                         levels = c("tcp", "udp")),
            lwd=1.5) 
 ```
 
