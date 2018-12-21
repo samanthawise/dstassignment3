@@ -1,7 +1,79 @@
 ---
 title: "dst_2_sam"
+author: "Samantha Wise, Kishalay Banerjee, Sam Harding"
+date: "21/12/2018"
 output: html_document
 ---
+
+## Introduction
+
+The dataset under consideration for this project was the kddcup.data_10_percent, like the previous project.
+
+In the previous assignment, we had created models to differentiate between Normal and Non-Normal traffic. So, in this assignment, we have decided to carry out classification on the basis of the different Protocol Type values in the data.
+
+Working
+
+Originally, there were 3 Protocol Type values in the data – TCP, UDP, ICMP. Since classification is still a new concept for us, we have chosen to limit ourselves to Binary Classifiers. To this end, we are concerning ourselves with those data points which correspond to TCP and UDP, only.
+
+Thus, our Inference Goal for this project is to try and predict TCP and UDP connections with a high degree of precision.
+
+Before starting the analysis, we divided our dataset into 2 non-overlapping parts. The values of the Duration column were used for this. All observations of TCP and UDP, corresponding to non-zero duration were partitioned into a single set, while the other set (of TCP and UDP) consisted of all data points with zero duration. We have ignored all the observations corresponding to ICMP, as mentioned before. This partitioning of the data served 2 purposes –
+
+1. It kept the two datasets to manageable sizes, and did not allow the computation times for the different models to be excessively high.
+
+2. After running our models on the first data set, the second partition provided us with a ready-made data set for learning out – of – sample performance of our non-trivial model.
+
+Models
+
+Originally, we ran 4 separate models on the first data set (zero duration). These were – Naïve Bayes, LVQ (Learning Vector Quantisation), Adaboost, and Neural Networks.
+
+Out of these 4, Neural Networks turned out to have performed the best classification, according to values of Sensitivity, which was the chosen Performance Metric.
+
+Sensitivity is defined as the proportion of True Positives in the Predicted Values. Here, we have defined a Positive as the prediction of a TCP value. Thus, a True Positive refers to a TCP connection being correctly predicted as a TCP.
+
+Instead of considering a simple model for the baseline, we decided to nominate the best performing model from the 4 individual ones, to be our baseline. Thus, Neural Networks was our baseline model. Our reason was –
+
+1. Since Neural Networks performed better than all the other models, we decided to combine the other individual models using a meta – analysis technique like Stacking or Boosting. We would then compare this stacked (or boosted) model and compare its performance to the previous best classifier (i.e, neural networks).
+
+Since the Stacked Model would be our non-trivial model, we would then run this model on the second data set, consisting of zero duration observations.
+
+
+The timeline of our project is set up as follows:
+
+(5/12/2018) The group had their first meeting to decide on how to approach the project. We initially agreed on the following:
+
+Inference goal: Create a simple classification problem out of the netflow data, can we tell what is TCP?
+Baseline Model: Logistic Regression
+Combine the classification models using xgboost
+
+The group then split up to carry further research: 
+
+Sam H: other classification models not discussed in the lectures/workshops
+Kish: xgboost
+Sam W: going through the code done in Workshop 9 and see if it can be implemented to classify the protocol types.
+
+
+(7/12/2018) The group discussed how to carry out the project. We will first take three classification models, perform boosting/stacking and see how this compares with the best out of our three models. 
+
+The training/testing data will be organised by randomly sampling 2000 rows of UDP, TCP and ICMP data. 
+
+We then decided to change our approach to consider the nonzero duration data and see if we can classify between UDP and TCP.
+
+The following weekend was then spent exploring the methods to classifying the nonzero duration
+
+Kish - neural networks
+Sam H - LVQ
+Sam W - Naive Bayes
+
+(18/12/2018) We updated our project proposal: we will combine LVQ and Naive Bayes via stacking and compare it with Neural Networks using 10-fold cross validation. 
+
+(19/12/2018) Attempted stacking with LVQ and Naive Bayes, however stacking failed since the LVQ method has its own ‘predict’ function which does not support class probabilities. We then attempted stacking Naive Bayes with AdaBoost Classification Trees, which ran successfully and the results were tabulated. 
+
+(20/12/2018) Computed ROC curves for Naive Bayes, adaBoost and stacked model.
+
+(21/12/2018) Testing out-of-performance sampling with zero duration data.
+
+## Analysis
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -45,6 +117,8 @@ Both Transmission Control Protocol (TCP) and User Datagram Protocol (UDP) are tr
 
 UDP, on the other hand, is a connection-less protocol. Communication is datagram oriented, so the integrity is guaranteed only on the single datagram. Datagrams reach destination and can arrive out of order or don't arrive at all. It's generally used for real time communication, where a little percentage of packet loss rate is preferable to the overhead of a TCP connection.
 
+Transforming the data:
+
 ```{r}
 trans <- function(x){
   x[,"logduration"]=log10(x[,"duration"])
@@ -53,60 +127,86 @@ trans <- function(x){
 }
 kddata2 <- trans(kddata)
 
-kddata2non <- kddata2 %>%
+kddata2_nonzero <- kddata2 %>%
   subset(zeroduration == FALSE) %>%
   mutate(protocol_type = factor(protocol_type)) %>%
   select(duration, protocol_type, count:dst_host_srv_rerror_rate)
   #select(duration, protocol_type, same_srv_rate, diff_srv_rate, srv_diff_host_rate, dst_host_count, dst_host_srv_count, dst_host_same_srv_rate, dst_host_diff_srv_rate, dst_host_same_src_port_rate)
 
 
-kddata2non_harding <- kddata2non %>%
-  mutate(protocol_type = factor(as.numeric(factor(protocol_type)))) #since lvq works on binarised data
+kddata2_nonzero_binary <- kddata2_nonzero %>%
+  mutate(protocol_type = factor(as.numeric(protocol_type))) #since lvq works on binarised data
 
-kddata2zero <- kddata2 %>%
-  subset(zeroduration == TRUE)
+kddata2_zero <- kddata2 %>%
+  subset(zeroduration == TRUE) %>%
+  #subset(select = -duration) %>%
+  mutate(protocol_type = factor(protocol_type)) %>%
+  select(duration, protocol_type, count:dst_host_srv_rerror_rate)
   
+kddata2_zero <- kddata2_zero[!kddata2_zero$protocol_type == "icmp",]
+
+kddata2_zero <- kddata2_zero %>%
+  mutate(protocol_type = factor(protocol_type))
+
+levels(kddata2_zero$protocol_type) <- levels(kddata2_nonzero$protocol_type)
+
+test_data <- kddata2_zero %>%
+  subset(select = -c(protocol_type))
+  
+test_label <- kddata2_zero %>%
+  subset(select = c(protocol_type)) %>%
+  mutate(protocol_type = factor(protocol_type))
+
+
+
 ```
 
 We'll now make a test dataset and a training dataset. First we consider the nonzero duration scenario and we wish to see if we can classify between UDP and TCP:
 
-
 ```{r}
-set.seed(1)
-n <- dim(kddata2non_harding)[1]
-s <- sample(1:n,n/2)
-
-
-train <- kddata2non_harding[s,]
-
-train_data <- train %>%
-  subset(select = -c(protocol_type))
-
-train_label <- train %>%
-  subset(select = c(protocol_type))
-
-test <- kddata2non_harding[-s,]
-
-test_data <- test %>%
-  subset(select = -c(protocol_type))
-
-test_label <- test %>%
-  subset(select = c(protocol_type))
+# set.seed(1)
+# n <- dim(kddata2_nonzero_binary)[1]
+# s <- sample(1:n,n/2)
+# 
+# 
+# train <- kddata2_nonzero_binary[s,]
+# 
+# train_data <- train %>%
+#   subset(select = -c(protocol_type))
+# 
+# train_label <- train %>%
+#   subset(select = c(protocol_type))
+# 
+# test <- kddata2_nonzero_binary[-s,]
+# 
+# test_data <- test %>%
+#   subset(select = -c(protocol_type))
+# 
+# test_label <- test %>%
+#   subset(select = c(protocol_type))
 ```
 
+Please refer to the following markdowns for the LVQ and Nueral Network Models in the repo:
+
+LVQ - LVQProject3.Rmd
+Neural Networks - Toolbox 3.Rmd
+
 Naive Bayes Model
+
+# http://rischanlab.github.io/NaiveBayes.html
+# http://topepo.github.io/caret/index.html
 
 ```{r}
 #m <- naive_bayes(protocol_type ~ ., data = train)
 #m <- naive_bayes(protocol_type ~ ., data = train, laplace = 1)
 
-x_w <- kddata2non %>%
+x_w <- kddata2_nonzero %>%
   select(duration, count:dst_host_srv_rerror_rate)
   #select(duration, same_srv_rate:dst_host_same_src_port_rate)
 
-y_w <- kddata2non$protocol_type
+y_w <- kddata2_nonzero$protocol_type
 
-control <- trainControl(method="repeatedcv", number=5, savePredictions="final", classProbs=TRUE)
+control <- trainControl(method="repeatedcv", number=10, savePredictions="final", classProbs=TRUE)
 
 model_w <- train(x_w,y_w,'naive_bayes',trControl=control)
 ```
@@ -114,14 +214,14 @@ model_w <- train(x_w,y_w,'naive_bayes',trControl=control)
 LVQ model
 
 ```{r}
-x_h <- kddata2non_harding %>%
+x_h <- kddata2_nonzero_binary %>%
   select(duration, count:dst_host_srv_rerror_rate)
 
-y_h <- kddata2non_harding$protocol_type
+y_h <- kddata2_nonzero_binary$protocol_type
 
-control <- trainControl(method="repeatedcv", number=5, savePredictions="final")
+control <- trainControl(method="repeatedcv", number=10, savePredictions = "final")
 
-model_h <- train(x_harding,y_h,'lvq',trControl=control)
+model_h <- train(x_h,y_h,'lvq',trControl=control)
 
 ```
 
@@ -142,13 +242,13 @@ LVQ
 ```{r}
 require(class)
 pred_h <- lvqtest(model_h$finalModel,x_h)
-confusionMatrix(pred_h, y)
+confusionMatrix(pred_h, y_h)
 ```
 
 Plotting the features of Naive Bayes:
 
 ```{r}
-naive_protocol <- naive_bayes(protocol_type ~ ., data = kddata2non)
+naive_protocol <- naive_bayes(protocol_type ~ ., data = kddata2_nonzero)
 plot(naive_protocol)
 ```
 
@@ -162,18 +262,32 @@ Tried to customise the LVQ predict function but since it is not included in the 
 # }
 ```
 
+Sensitivity Analysis:
+
+```{r}
+sensitivity=c(0.9982,0.9989,0.9329)
+specificity=c(0.9994,0.7434,0.8778)
+Mat=rbind(sensitivity,specificity)
+colnames(Mat)=c("Nerual Network","Naive Bayes","LVQ")
+Mat
+```
+
+From this matrix, it is clear that Neural Networks was the best of the three models. Both the sensitivity and specificity of the model was consistently high, and achieved a very high accuracy overall. The Naive Bayes did perform better than Neural Networks in sensitivity. LVQ underperformed Neural Networks in both cases, but had a higher secificity than Naive Bayes.
+
 Stacking
+
+# https://machinelearningmastery.com/machine-learning-ensembles-with-r/
 
 ```{r}
 # Example of Stacking algorithms
 # create submodels
-library(caret)
-library(caretEnsemble)
-control <- trainControl(method="repeatedcv", number=5, savePredictions="final", classProbs=TRUE)
+require(caret)
+require(caretEnsemble)
+control <- trainControl(method="repeatedcv", number=10, savePredictions="final", classProbs=TRUE)
 #control <- trainControl(method="cv", number=10, classProbs = TRUE, savePredictions = T)
 algorithmList <- c('naive_bayes', 'adaboost')
 set.seed(7)
-models <- caretList(protocol_type ~., data=kddata2non, trControl=control, methodList=algorithmList)
+models <- caretList(protocol_type ~., data=kddata2_nonzero, trControl=control, methodList=algorithmList)
 results <- resamples(models)
 summary(results)
 dotplot(results)
@@ -187,20 +301,22 @@ modelCor(results)
 splom(results)
 ```
 
-We can see that the pair of predictions have a fairly low correlation.
+We can see that the pair of predictions have a fairly low negative correlation (-0.1384888). Although we ran out of time, it would be interesting to experiment with models of different correlation levels to see how this effects the performance of the stacked model.
 
 We combine the predictions of the classifiers using random forest along the dataset. 
 
 ```{r}
 # stack use the random forest algorithm to combine the predictions.
-stackControl <- trainControl(method="repeatedcv", number=5, savePredictions= "final", classProbs=TRUE)
+stackControl <- trainControl(method="repeatedcv", number=10, savePredictions= "final", classProbs=TRUE)
 #stackControl <- trainControl(method="cv", number=10, classProbs = TRUE)
 set.seed(7)
 stack.rf <- caretStack(models, method="rf", metric="Accuracy", trControl=stackControl)
 print(stack.rf)
 ```
 
-We can see that this has lifted the accuracy to 99.37652%, which is an improvement on the Naive Bayes Model (87.73279%) alone but not the adaboost Model (99.46559%).
+The parameter from this model is 'mtry' which is the number of variables randomly sampled as candidates at each split.
+
+We can see that this has lifted the accuracy to 99.25503%, which is an improvement on the mean accuracy Naive Bayes Model (87.75706%) alone but not the mean adaboost Model (99.48179%).
 
 ```{r}
 # Generate level-one dataset for training the ensemble metalearner
@@ -214,7 +330,7 @@ ROC Curve for Naive Bayes
 #library("pROC")
 #library("plotROC")
 
-ctrl <- trainControl(method="repeatedcv", number=5, savePredictions = "final", classProbs = TRUE)
+ctrl <- trainControl(method="repeatedcv", number=10, savePredictions = "final", classProbs = TRUE, summaryFunction = twoClassSummary)
 mdl <- train(x_h,make.names(y_h), method = "naive_bayes", trControl = ctrl, metric = "ROC")
 #pred_se <- predict(mdl, newdata = kddata2non_harding, type = "prob")
 
@@ -261,12 +377,11 @@ pROC::plot.roc(pROC::roc(response = for_lift$Class,
 # g + annotate("text", x=0.75, y=0.25, label=paste("AUC =", round((calc_auc(g))$AUC, 4)))
 ```
 
-For Adaboost
+For Adaboost:
 
 ```{r}
-ctrl <- trainControl(method="repeatedcv", number=5, savePredictions = "final", classProbs = TRUE)
+ctrl <- trainControl(method="repeatedcv", number=10, savePredictions = "final", classProbs = TRUE, summaryFunction = twoClassSummary)
 mdl <- train(x_h,make.names(y_h), method = "adaboost", trControl = ctrl, metric = "ROC")
-pred_se <- predict(mdl, newdata = kddata2non_harding, type = "prob")
 
 
 for_lift <- data.frame(Class = mdl$pred$obs,  adaboost = mdl$pred$X1)
@@ -291,5 +406,19 @@ pROC::plot.roc(pROC::roc(response = for_lift$Class,
            lwd=1.5) 
 ```
 
+A big improvement from the Naive Bayes model.
 
-Comparing this performance with Neural Networks: (Kish)
+
+```{r}
+pred_w_prob <- predict(stack.rf,x_w)
+confusionMatrix(pred_w_prob, y_w)
+```
+
+Out-of-sample performance of the non-trivial model: we will try classify between TCP and UDP when the duration is zero using our stacked model.
+
+```{r}
+pred_zero <- predict(stack.rf,test_data)
+confusionMatrix(pred_zero, test_label)
+```
+
+Unfortunately, we were not able to implement the out of sampling performance in time. This could have shown us whether the duration amount is significant when classifying between TCP and UDP. 
