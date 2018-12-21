@@ -1,0 +1,291 @@
+---
+title: "DS Toolbox 3"
+author: "Kishalay"
+date: "20 December 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+
+# CODE CHUNK 1
+
+install.packages('data.table')
+library(data.table)
+kddata = read.csv("C:\\Users\\KISHALAY\\Desktop\\Bristol Files\\Data Science Toolbox\\kddcup.data_10_percent.gz",stringsAsFactors = FALSE)
+kddnames = read.table("C:\\Users\\KISHALAY\\Desktop\\Bristol Files\\Data Science Toolbox\\kddcup.names",sep = ":", skip = 1, as.is = T)
+colnames(kddata)=c(kddnames[,1],"normal")
+head(kddata)
+set.seed(1)
+
+```
+
+In Code Chunk 1, I am calling the library function data.table, which allows me to read in the data. Then, I rename the columns using the file kddnames and just check the first 6 observations of each column to ensure that my changes have taken effect. I am also setting a seed value for the random number generator. I have explicitly set the stringAsFactor parameter to FALSE, since, without doing so, I would not be able to convert my Factor columns to Numeric, if needed later on.
+
+
+```{r}
+
+# CODE CHUNK 2
+
+unique_values = apply(kddata,2,unique)
+colcounts = lapply(unique_values,length)
+constants = colcounts==1
+not_constants = !constants
+pruned_kddata = kddata[,not_constants]
+head(pruned_kddata)
+
+```
+
+In Code Chunk 2, I am trying to find out if any of the 42 columns consist of just one value, throughout. If such a column(s), exists, I will remove that column from my dataset. This is because, since these columns have the same value for both categories of the response variable, it is logical to assume that they won't be affecting the response variable at all. 
+
+
+```{r}
+
+# CODE CHUNK 3
+
+final_data = pruned_kddata[which(pruned_kddata$duration!= 0 ), ]
+length(final_data$duration)
+head(final_data)
+
+
+```
+
+In Code Chunk 3, I am only keeping those observations from the dataset, which have non zero values for the duration column. I have described the reasons for this in my reflection. 
+
+```{r}
+
+# CODE CHUNK 4
+
+colnames(final_data) = c(1:40)
+head(final_data)
+
+```
+
+In Code Chunk 4, I am renaming the columns to simplify column operations. Rather than using the original names to call the columns, it would be easier to rename them to something much simpler.
+
+```{r}
+
+# CODE CHUNK 5
+
+temp = data.frame(final_data[c(2,3,4,40)])
+head(temp)
+
+```
+
+In Code Chunk 5, I am storing the four 'Factor' columns in my dataset, in another dataframe named 'temp'. My reasons for doing so will be explained in the next few sections. 
+
+```{r}
+
+# CODE CHUNK 6
+
+final_data = final_data[ -c(2,3,4,40)]
+head(final_data)
+
+```
+
+To implement Neural Networks, it was strongly suggested on Stack Exchange, that some form of data standardisation or normalisation be carried out. This would ensure that the data values would be in the interval [0,1] or [-1,1], and would speed up the working of the algorithm. So, in Code Chunk 6, before I normalise the data, I am removing the non-numeric columns (here - Factor) from the dataset. 
+
+```{r}
+
+# CODE CHUNK 7
+
+x = data.frame(final_data[c(4,5)])
+final_data = final_data[ -c(4,5)]
+head(final_data)
+
+```
+
+After inspection of the data, I noticed that two of the columns had just 1 unique value. So, in the event of normalisation of data, the values in these columns would become undefined. So, I am removing them beforehand, in Code Chunk 7.
+
+```{r}
+
+# CODE CHUNK 8
+
+avg = apply(final_data,2,mean)
+variance = apply(final_data,2,var) 
+scaled = as.data.frame(scale(final_data,center = avg, scale = sqrt(variance)))
+head(scaled)
+
+```
+
+In Code Chunk 8, I am carrying out the actual data normalisation. This ensures that all my data points now lie in the interval [-1,1]. 
+
+```{r}
+
+# CODE CHUNK 9
+
+dataframe = cbind(scaled,temp)
+colnames(dataframe) = c('v1','v2','v3','v4','v5','v6','v7','v8','v9','v10','v11','v12','v13','v14','v15','v16','v17','v18','v19','v20','v21','v22','v23','v24','v25','v26','v27','v28','v29','v30','v31','v32','v33','v34','v35','v36','v37','v38')
+
+```
+
+In Code Chunk 9, I am appending the Factor columns I had removed earlier, back to the normalised dataset. Since my initial attempts to run Neural Networks on this data kept throwing an error, a quick check on Stack Overflow revealed that the algorithm does not run when the column names are numeric. So, I am changing them again.
+
+```{r}
+
+# CODE CHUNK 10
+
+install.packages('tidyverse')
+library(tidyverse)
+dataframe$v35 = as.integer(factor(dataframe$v35))
+#head(train)
+dataframe$v36 = as.integer(factor(dataframe$v36))
+dataframe$v37 = as.integer(factor(dataframe$v37))
+dataframe$v38 = as.integer(factor(dataframe$v38))
+dataframe = dataframe %>% mutate(v35 = as.integer(v35) - 1)
+head(dataframe)
+
+```
+
+After the previous steps, the algorithm still refused to run, and threw a new error which read something like "requires numeric/complex matrix/vector arguments". Stack Exchange advised that the Factor columns be transformed to Numeric columns. Also, the same article mentioned that Neural Networks only works in classification when the response variable is either 0 or 1. So, since the Protocol Type column had values 1 and 2 by default (when converted to Numeric), I used the mutate command to transform them appropriately. Here, TCP is coded as 0, and UDP is coded as 1.
+
+```{r}
+
+# CODE CHUNK 11
+
+index = sample(1:nrow(dataframe),round(0.9*nrow(dataframe)))
+train = dataframe[index,]
+test = dataframe[-index,]
+head(train)
+head(test)
+
+```
+
+In Code Chunk 11, I am dividing my dataset into a Training Set and a Test Set. I have set the Training Set to contain 90% of the total data. The Test Set will contain the remaining 10% of the data. 
+
+```{r}
+
+# CODE CHUNK 12
+
+install.packages('neuralnet')
+library(neuralnet)
+n = names(train)
+f = as.formula(paste("v35~", paste(n[!n %in% "v35"], collapse = " + ")))
+nn = neuralnet(f, data=train ,hidden= 3,err.fct = 'ce',linear.output = F)
+
+```
+
+Finally, in Code Chunk 12, the Neural Networks algorithm is ready to run. Surprisingly, the neuralnet package does not accept a formula in the function. Instead, we need to write it separately, and then pass it into the package. That is why I have had to define the formula f. 
+
+```{r}
+
+# CODE CHUNK 13
+
+plot(nn)
+
+```
+
+In Code Chunk 13, I am plotting the results obtained by the Neural Networks algorithm to obtain a visualisation of the process. The black lines show the connections between each layer and the weights on each connection while the blue lines show the bias term added in each step. The bias can be thought as the intercept of a linear model.  However, we cannot say much about the fitting, the weights and the model from this graph. We can only infer that the training algorithm has converged, and the model is ready to be used. 
+
+```{r}
+
+# CODE CHUNK 14
+
+pred = compute(nn,test[,c(1:34,36:38)])
+pred_nn = pred$net.result
+head(pred_nn)
+plot(pred_nn)
+
+```
+
+In Code Chunk 14, I am computing and taking a look at the predicted values of the response variable, which was generated by the algorithm. The Neural Networks algorithm throws an error if the column containing the response variable is included in the Compute function. So, I have had to remove it.
+
+As can be seen, the predictions are not exactly 0 or 1, but values which are really close. However, our response variable was originally of type Factor, which I had encoded as 0 and 1, so that the algorithm could run. Thus, instead of a large number of decimal values, I need the predictions to be 0 or 1 too, for sensible calculation of model efficiency parameters like Sensitivity, Specificity etc.
+
+So, as a start, I have plotted the original predictions to see how they are distributed. It is observed that they are grouped into 2 clear classes, in the neighbourhood of 0, and the neighbourhood of 1, with no points in the approximate interval [0.2,0.8].
+
+So, to coerce my predictions to 0 or 1 values, I have employed the following tactic in the next code chunk -
+All prediction values greater than 0.5 will be given a value of 1, and all prediction values less than 0.5 will be given a value of 0.
+This is logical, since, values which predict the True value 1 (or 0) would be expected to lie very close to 1(or 0). Moreover, the difference in the number of predicted 1's (or 0's) from the number of true 1's (or 0's) can be explained using the concepts of False Positives etc. 
+
+```{r}
+
+# CODE CHUNK 15
+
+ k = 10
+
+proportion = 0.9 
+
+ n = names(train)
+ f = as.formula(paste("v35~", paste(n[!n %in% "v35"], collapse = " + ")))
+ Q = 0
+ for(i in 1:k)
+ {
+     index_data = sample(1:nrow(dataframe), round(proportion*nrow(dataframe)))
+     train_cv = dataframe[index_data, ]
+     test_cv = dataframe[-index_data, ]
+     nn_cv = neuralnet(f,
+                         data = train_cv,
+                         hidden = 3,
+                         err.fct = "ce",
+                         linear.output = FALSE)
+     
+     
+     pr.nn = compute(nn_cv, test_cv[, c(1:34,36:38)])
+     pr.nn_data = pr.nn$net.result
+      for(j in 1:length(pr.nn_data)){
+          pr.nn_data[j] = ifelse(pr.nn_data[j]>=0.5,1,0) 
+     }
+     cm = table(test_cv$v35, pr.nn_data)
+     print(cm)
+    
+     Q=Q+cm
+     
+     
+ }
+ print("The final Confusion Matrix is")
+ print(Q)
+ 
+ 
+```
+
+In Code Chunk 15, I am carrying out the same analysis as before, with the added extension of 10 Fold Cross Validation. Using Cross Validation allows us to obtain better estimates of accuracy, sensitivity etc, since the repeated sampling reduces the variational bias in the sampling and prediction. 
+I am also printing the indiviual Confusion Matrices from each of the 10 iterations, as well as printing the main Confusion Matrix at the end.
+
+```{r}
+
+# CODE CHUNK 16
+
+sensitivity = Q[1,1]/(Q[1,1]+Q[1,2])
+sensitivity
+
+```
+
+In Code Chunk 16, I am calculating the Sensitivity of my model, as obtained from the Main Confusion Matrix. I have chosen Sensitivity, since it gives me the proportion of true positives in my predicted data. Here, I have labelled TCP as 'Positive', and UDP as 'Negative'. Thus, the value of Sensitivity gives the proportion of TCP correctly predicted by my model.
+
+```{r}
+
+# CODE CHUNK 17
+
+install.packages('pROC')
+library(pROC)
+roc_object = roc(test_cv$v35, pr.nn_data)
+plot(roc_object)
+auc(roc_object)
+```
+
+
+In Code Chunk 17, I am carrying out an analysis of the Sensitivity of my model. To do this, I am plotting the ROC Curve and also calculating the area under it. 
+
+The ROC Curve is a graphical plot used to show the diagnostic ability of binary classifiers. 
+
+The ROC curve is a graphical description of the trade-off between the Sensitivity and Specificity of the model, where Sensitivity = (True Positives/(True Positives + False Negatives)) and Specificity = (False Negatives/(True Positives + False Negatives)). I have already defined 'Positive' and 'Negative' in the text above.
+
+As a baseline, a random classifier is plotted (along the y=x line), which is expected to correspond to the points along the diagonal. Classifiers that give curves closer to the top-left corner indicate a better performance. The closer the curve comes to the random classifier, the less accurate is the test. 
+
+Another advantage of using ROC curves is that, it does not depend on the class distribution. This makes it useful for evaluating classifiers predicting rare events. In contrast, evaluating classifiers using Accuracy is not ideal since it favours classifiers that always predict a negative outcome for rare events. 
+
+Another common approach for judging the efficiency of classifiers is to calculate the AUC (Area Under the Curve) of the ROC curve. According to DisplayR, "it is equivalent to the probability that a randomly chosen positive instance is ranked higher than a randomly chosen negative instance, i.e. it is equivalent to the two sample Wilcoxon rank-sum statistic". Thus, a higher value of AUC is preferable. 
+
+In my model, I have an AUC of 1, which shows a near perfect classification. 
+
+
+
+
+
+
+
